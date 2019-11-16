@@ -1,87 +1,112 @@
 from selenium import webdriver
+from selenium.common.exceptions import StaleElementReferenceException
 from time import sleep
 from datetime import date
 import os
 import re
 
-
-def get_driver():
-    # setting driver
-    fp = webdriver.FirefoxProfile()
-    fp.set_preference("browser.download.folderList", 2)
-    fp.set_preference("browser.download.manager.showWhenStarting", False)
-    fp.set_preference("browser.download.dir", os.getcwd() + "/extracao/despesa")
-    fp.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/vnd.ms-excel")
-    fp.set_preference("dom.disable_deforeunload", True)
-
-    options = webdriver.FirefoxOptions()
-    options.add_argument('-headless')
-
-    # creating driver and getting the url
-    driver = webdriver.Firefox(fp, options=options)
-    driver.get('http://web.transparencia.pe.gov.br/despesas/despesa-geral/')
-    sleep(10)
-
-    # removing the fixed bar and selecting iframe
-    topo = driver.find_element_by_class_name('topo-fixed')
-    driver.execute_script("arguments[0].style.position='absolute';", topo)
-    driver.switch_to.frame(driver.find_element_by_tag_name("iframe"))
-    return driver
+PAYMENTS = 'payment'
+RECEIPTS = 'receipt'
 
 
-def enable_options(driver):
-    ops_xpath = '/html/body/main/section/div/div[5]/div/div/div[2]/div[1]/div[1]/div[4]/div/select'
-    ops = driver.find_elements_by_xpath(ops_xpath)
-    driver.execute_script("arguments[0].style.display='inline';", ops[0])
-    options = driver.find_elements_by_xpath("//*[@id='html_selectugtabela']/select/option")
-    return options
+class FinancasPE:
+    def __init__(self, headless=True):
+        self.headless = headless
 
+    def _get_driver(self):
+        # setting driver
+        fp = webdriver.FirefoxProfile()
+        fp.set_preference("browser.download.folderList", 2)
+        fp.set_preference("browser.download.manager.showWhenStarting", False)
+        fp.set_preference("browser.download.dir", os.getcwd() + "/extracao/despesa")
+        fp.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/vnd.ms-excel")
+        fp.set_preference("dom.disable_deforeunload", True)
 
-def get_uge_list(driver):
-    options = enable_options(driver)
-    dpts = [option.text for option in options]
-    return dpts
+        options = webdriver.FirefoxOptions()
+        if self.headless:
+            options.add_argument('-headless')
 
+        # creating driver and getting the url
+        driver = webdriver.Firefox(fp, options=options)
+        sleep(5)
+        return driver
 
-def export_table(driver):
-    btn_table = driver.find_element_by_xpath('//*[@id="exportTable"]')
-    driver.execute_script('arguments[0].scrollIntoView(true);', btn_table)
-    btn_table.click()
+    def account_type(self, driver, account):
+        # account type is the right url to access
+        if account == PAYMENTS:
+            driver.get('http://web.transparencia.pe.gov.br/despesas/despesa-geral/')
+        else:
+            driver.get('http://web.transparencia.pe.gov.br/receitas/painel-de-receitas/')
+        sleep(10)
 
+        # removing the fixed bar and selecting iframe
+        topo = driver.find_element_by_class_name('topo-fixed')
+        driver.execute_script("arguments[0].style.position='absolute';", topo)
+        driver.switch_to.frame(driver.find_element_by_tag_name("iframe"))
 
-def get_today():
-    today = date.today().timetuple()
-    today_str = '{}{}{}'.format(today.tm_mday, today.tm_mon, today.tm_year)
-    return today_str
+    def select_year(self, driver, year):
+        ops = driver.find_elements_by_xpath("//*[@id='html_anotabelaselector']/select")
+        driver.execute_script("arguments[0].style.display='inline';", ops[0])
 
+        sel_year_options = driver.find_elements_by_xpath("//*[@id='html_anotabelaselector']/select/option")
+        for option in sel_year_options:
+            try:
+                if option.text == str(year):
+                    driver.execute_script("arguments[0].click();", option)
+                    # option.click()
+                    sleep(5)
+            except StaleElementReferenceException as e:
+                print('resolver ano', e)
 
-def rename_file(uge):
-    uge = re.sub('[!@#$/]', '-', uge)
-    path = os.getcwd() + r'/extracao/despesa/'
-    filename_path = path + r'Despesa_' + get_today() + '.xls'
-    new_filename = path + uge + '_' + get_today() + '.xls'
-    try:
-        os.rename(filename_path, new_filename)
-    except FileNotFoundError as e:
-        print(e)
-    except FileExistsError as e:
-        print(e)
+    def enable_options(self, driver):
+        ops_xpath = '/html/body/main/section/div/div[5]/div/div/div[2]/div[1]/div[1]/div[4]/div/select'
+        ops = driver.find_elements_by_xpath(ops_xpath)
+        driver.execute_script("arguments[0].style.display='inline';", ops[0])
+        options = driver.find_elements_by_xpath("//*[@id='html_selectugtabela']/select/option")
+        return options
 
+    def get_uge_list(self, driver):
+        options = self.enable_options(driver)
+        dpts = [option.text for option in options]
+        return dpts
 
-driver = get_driver()
-orgaos = get_uge_list(driver)
+    def export_table(self, driver):
+        btn_table = driver.find_element_by_xpath('//*[@id="exportTable"]')
+        driver.execute_script('arguments[0].scrollIntoView(true);', btn_table)
+        driver.execute_script("arguments[0].click();", btn_table)
+        # btn_table.click()
 
-for orgao in orgaos:
-    print('Gerando {} de {}.'.format(orgaos.index(orgao), len(orgaos)))
-    ops = enable_options(driver)
-    for op in ops:
-        if op.text == orgao:
-            print('Extraindo planilha {}.'.format(orgao))
-            break
-    op.click()
-    sleep(5)
-    export_table(driver)
-    sleep(5)
-    rename_file(orgao)
+    def get_today(self):
+        today = date.today().timetuple()
+        today_str = '{}{}{}'.format(today.tm_mday, today.tm_mon, today.tm_year)
+        return today_str
 
+    def rename_file(self, uge, year):
+        uge = re.sub('[!@#$/]', '-', uge)
+        path = os.getcwd() + r'/extracao/despesa/'
+        filename_path = path + r'Despesa_' + self.get_today() + '.xls'
+        new_filename = path + uge + '_' + self.get_today() + '_' + str(year) + '_despesa.xls'
+        try:
+            os.rename(filename_path, new_filename)
+        except FileNotFoundError as e:
+            print(e)
+        except FileExistsError as e:
+            print(e)
 
+    def despesas(self, year):
+        driver = self._get_driver()
+        self.account_type(driver, PAYMENTS)
+        self.select_year(driver, year)
+        uge = self.get_uge_list(driver)
+        for ug in uge:
+            print('Gerando {} de {}.'.format(uge.index(ug), len(uge)))
+            ops = self.enable_options(driver)
+            for op in ops:
+                if op.text == ug:
+                    print('Extraindo planilha {}.'.format(ug))
+                    break
+                op.click()
+            sleep(5)
+            self.export_table(driver)
+            sleep(5)
+            self.rename_file(ug, year)
