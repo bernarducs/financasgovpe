@@ -7,6 +7,8 @@ import re
 
 PAYMENTS = 'payment'
 RECEIPTS = 'receipt'
+PATH_PAYMENTS = os.getcwd() + r'/extracao/despesa/'
+PATH_RECEIPT = os.getcwd() + r'/extracao/receita/'
 
 
 class FinancasPE:
@@ -37,7 +39,7 @@ class FinancasPE:
             driver.get('http://web.transparencia.pe.gov.br/despesas/despesa-geral/')
         else:
             driver.get('http://web.transparencia.pe.gov.br/receitas/painel-de-receitas/')
-        sleep(10)
+        sleep(25)
 
         # removing the fixed bar and selecting iframe
         topo = driver.find_element_by_class_name('topo-fixed')
@@ -52,13 +54,14 @@ class FinancasPE:
         for option in sel_year_options:
             try:
                 if option.text == str(year):
-                    driver.execute_script("arguments[0].click();", option)
-                    # option.click()
-                    sleep(5)
+                    option.click()
+                    print('Ano selecionado.')
+                    sleep(10)
             except StaleElementReferenceException as e:
                 print('resolver ano', e)
 
     def enable_options(self, driver):
+        # making options visible - by each page refresh the options got hided.
         ops_xpath = '/html/body/main/section/div/div[5]/div/div/div[2]/div[1]/div[1]/div[4]/div/select'
         ops = driver.find_elements_by_xpath(ops_xpath)
         driver.execute_script("arguments[0].style.display='inline';", ops[0])
@@ -73,8 +76,12 @@ class FinancasPE:
     def export_table(self, driver):
         btn_table = driver.find_element_by_xpath('//*[@id="exportTable"]')
         driver.execute_script('arguments[0].scrollIntoView(true);', btn_table)
-        driver.execute_script("arguments[0].click();", btn_table)
-        # btn_table.click()
+        self.click_element(driver, btn_table)
+        sleep(10)
+
+    def click_element(self, driver, el):
+        # sometimes, is necessary put focus in element before the click
+        driver.execute_script("arguments[0].click();", el)
 
     def get_today(self):
         today = date.today().timetuple()
@@ -83,15 +90,22 @@ class FinancasPE:
 
     def rename_file(self, uge, year):
         uge = re.sub('[!@#$/]', '-', uge)
-        path = os.getcwd() + r'/extracao/despesa/'
-        filename_path = path + r'Despesa_' + self.get_today() + '.xls'
-        new_filename = path + uge + '_' + self.get_today() + '_' + str(year) + '_despesa.xls'
+        filename_path = PATH_PAYMENTS + r'Despesa_' + self.get_today() + '.xls'
+        new_filename = PATH_PAYMENTS + uge + '_' + self.get_today() + '_' + str(year) + '_despesa.xls'
         try:
             os.rename(filename_path, new_filename)
         except FileNotFoundError as e:
             print(e)
         except FileExistsError as e:
             print(e)
+        finally:
+            sleep(10)
+
+    def verify_files(self):
+        files_list = os.listdir(PATH_PAYMENTS)
+        for file in files_list:
+            if 'Despesa' in file:
+                os.remove(PATH_PAYMENTS + file)
 
     def despesas(self, year):
         driver = self._get_driver()
@@ -99,14 +113,16 @@ class FinancasPE:
         self.select_year(driver, year)
         uge = self.get_uge_list(driver)
         for ug in uge:
+            self.verify_files()
             print('Gerando {} de {}.'.format(uge.index(ug), len(uge)))
             ops = self.enable_options(driver)
             for op in ops:
                 if op.text == ug:
+                    op.click()
                     print('Extraindo planilha {}.'.format(ug))
                     break
-                op.click()
-            sleep(5)
+            sleep(10)
             self.export_table(driver)
-            sleep(5)
             self.rename_file(ug, year)
+        driver.close()
+        print('Extração concluída.')
