@@ -76,12 +76,8 @@ class FinancasPE:
     def export_table(self, driver):
         btn_table = driver.find_element_by_xpath('//*[@id="exportTable"]')
         driver.execute_script('arguments[0].scrollIntoView(true);', btn_table)
-        self.click_element(driver, btn_table)
+        driver.execute_script("arguments[0].click();", btn_table)
         sleep(10)
-
-    def click_element(self, driver, el):
-        # sometimes, is necessary put focus in element before the click
-        driver.execute_script("arguments[0].click();", el)
 
     def get_today(self):
         today = date.today().timetuple()
